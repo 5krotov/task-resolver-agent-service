@@ -1,10 +1,10 @@
 kafka:
-  addr: localhost:9092
+  addr: kafka:9092
   group: agent-group
   task_topic: tasks
   status_topic: status-updates
 data-provider:
-  addr: http://localhost:8080
+  addr: http://mock-api:8083
 agent:
   http:
-    addr: http://localhost:8081
+    addr: localhost:8081

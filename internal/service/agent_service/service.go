@@ -23,11 +23,14 @@ type AgentService struct {
 func NewAgentService(config config.Config, kafka sarama.SyncProducer) *AgentService {
 	logger, _ := zap.NewProduction()
 
-	return &AgentService{
+	svc := &AgentService{
 		config: config,
 		kafka:  kafka,
 		logger: logger.Sugar(),
 	}
+
+	go svc.ConsumeStatus(context.Background())
+	return svc
 }
 
 func (as *AgentService) CreateTask(apiTask api.CreateTaskRequest) (*entity.Task, error) {
