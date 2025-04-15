@@ -1,2 +1,10 @@
-http:
-  addr: "0.0.0.0:8080"
+kafka:
+  addr: localhost:9092
+  group: agent-group
+  task_topic: tasks
+  status_topic: status-updates
+data-provider:
+  addr: http://localhost:8080
+agent:
+  http:
+    addr: http://localhost:8081

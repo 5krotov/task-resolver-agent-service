@@ -7,19 +7,21 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/gorilla/mux"
 )
 
 type Server struct {
 	Config config.HTTPConfig
 	Server *http.Server
-	Mux    *http.ServeMux
+	Mux    *mux.Router
 }
 
 func NewServer(cfg config.HTTPConfig) *Server {
 	return &Server{
 		Config: cfg,
 		Server: nil,
-		Mux:    http.NewServeMux(),
+		Mux:    mux.NewRouter(),
 	}
 }
 

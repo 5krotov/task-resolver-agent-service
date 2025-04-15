@@ -2,17 +2,35 @@ package config
 
 import (
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"io"
 	"os"
+
+	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	HTTPConfig `yaml:"http" validate:"required"`
+	Kafka        KafkaConfig        `yaml:"kafka"`
+	DataProvider DataProviderConfig `yaml:"data-provider"`
+	Agent        AgentConfig        `yaml:"agent"`
+}
+
+type KafkaConfig struct {
+	Addr        string `yaml:"addr"`
+	Group       string `yaml:"group"`
+	TaskTopic   string `yaml:"task_topic"`
+	StatusTopic string `yaml:"status_topic"`
+}
+
+type DataProviderConfig struct {
+	Addr string `yaml:"addr"`
+}
+
+type AgentConfig struct {
+	HTTP HTTPConfig `yaml:"http"`
 }
 
 type HTTPConfig struct {
-	Addr string `yaml:"addr" validate:"required"`
+	Addr string `yaml:"addr"`
 }
 
 func NewConfig() *Config {
