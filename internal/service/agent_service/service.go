@@ -33,6 +33,27 @@ func NewAgentService(config config.Config, kafka sarama.SyncProducer) *AgentServ
 	return svc
 }
 
+type ConsumerGroupHandler struct {
+	logger *zap.SugaredLogger
+	svc    *AgentService
+}
+
+func (h *ConsumerGroupHandler) Setup(sarama.ConsumerGroupSession) error   { return nil }
+func (h *ConsumerGroupHandler) Cleanup(sarama.ConsumerGroupSession) error { return nil }
+func (h *ConsumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+	for msg := range claim.Messages() {
+		var status api.UpdateStatusRequest
+		if err := json.Unmarshal(msg.Value, &status); err != nil {
+			h.logger.Warn("Failed to unmarshal status update message", zap.Error(err))
+			continue
+		}
+		h.logger.Info("Received status update message", zap.Any("statusUpdate", status))
+		go h.svc.SaveNewStatus(status)
+		session.MarkMessage(msg, "")
+	}
+	return nil
+}
+
 func (as *AgentService) CreateTask(apiTask api.CreateTaskRequest) (*entity.Task, error) {
 	as.logger.Info("Creating task", zap.Any("apiTask", apiTask))
 
@@ -100,34 +121,26 @@ func (as *AgentService) CreateTask(apiTask api.CreateTaskRequest) (*entity.Task,
 func (as *AgentService) ConsumeStatus(ctx context.Context) error {
 	as.logger.Info("Starting Kafka consumer for status updates")
 
-	consumer, err := sarama.NewConsumer([]string{as.config.Kafka.Addr}, nil)
-	if err != nil {
-		as.logger.Error("Failed to create Kafka consumer", zap.Error(err))
-		return fmt.Errorf("failed to create Kafka consumer: %w", err)
-	}
-	defer consumer.Close()
+	config := sarama.NewConfig()
+	config.Version = sarama.V2_1_0_0
+	config.Consumer.Offsets.AutoCommit.Enable = true
+	config.Consumer.Group.Rebalance.Strategy = sarama.BalanceStrategyRoundRobin
+	config.Consumer.Offsets.Initial = sarama.OffsetOldest
 
-	partConsumer, err := consumer.ConsumePartition(as.config.Kafka.StatusTopic, 0, sarama.OffsetNewest)
+	groupID := as.config.Kafka.Group
+	brokers := []string{as.config.Kafka.Addr}
+	topic := as.config.Kafka.StatusTopic
+
+	handler := &ConsumerGroupHandler{logger: as.logger, svc: as}
+	group, err := sarama.NewConsumerGroup(brokers, groupID, config)
 	if err != nil {
-		as.logger.Error("Failed to start partition consumer", zap.Error(err))
-		return fmt.Errorf("failed to start partition consumer: %w", err)
+		as.logger.Fatal(err)
 	}
-	defer partConsumer.Close()
+	defer group.Close()
 
 	for {
-		select {
-		case msg := <-partConsumer.Messages():
-			var status api.UpdateStatusRequest
-			if err := json.Unmarshal(msg.Value, &status); err != nil {
-				as.logger.Warn("Failed to unmarshal status update message", zap.Error(err))
-				continue
-			}
-			as.logger.Info("Received status update message", zap.Any("statusUpdate", status))
-			go as.SaveNewStatus(status)
-
-		case <-ctx.Done():
-			as.logger.Info("Stopping Kafka consumer due to context cancellation")
-			return ctx.Err()
+		if err := group.Consume(ctx, []string{topic}, handler); err != nil {
+			as.logger.Fatalf(err.Error())
 		}
 	}
 }
