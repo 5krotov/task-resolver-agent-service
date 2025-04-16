@@ -135,10 +135,7 @@ func (as *AgentService) ConsumeStatus(ctx context.Context) error {
 func (as *AgentService) SaveNewStatus(status api.UpdateStatusRequest) {
 	as.logger.Info("Saving new status update", zap.Any("statusUpdate", status))
 
-	data, err := json.Marshal(entity.Status{
-		Status:    status.Status.Status,
-		Timestamp: status.Status.Timestamp,
-	})
+	data, err := json.Marshal(status)
 	if err != nil {
 		as.logger.Error("Failed to marshal new status update data", zap.Error(err))
 		return
