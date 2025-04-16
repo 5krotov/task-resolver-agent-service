@@ -122,7 +122,7 @@ func (as *AgentService) ConsumeStatus(ctx context.Context) error {
 	as.logger.Info("Starting Kafka consumer for status updates")
 
 	config := sarama.NewConfig()
-	config.Version = sarama.V2_5_0_0
+	config.Version = sarama.V2_8_1_0
 	config.Consumer.Offsets.AutoCommit.Enable = true
 	config.Consumer.Group.Rebalance.Strategy = sarama.BalanceStrategyRoundRobin
 	config.Consumer.Offsets.Initial = sarama.OffsetOldest
