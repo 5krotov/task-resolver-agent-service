@@ -34,7 +34,11 @@ func (h *AgentHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.svc.CreateTask(task)
-
+	taskResp, err := h.svc.CreateTask(task)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(taskResp)
 }
