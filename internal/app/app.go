@@ -22,6 +22,7 @@ func NewApp() *App {
 func (*App) Run(cfg config.Config) {
 	server := http.NewServer(cfg.Agent.HTTP)
 	config := sarama.NewConfig()
+	config.Version = sarama.V2_5_0_0
 
 	config.Producer.Return.Successes = true
 	config.Producer.RequiredAcks = sarama.WaitForAll
