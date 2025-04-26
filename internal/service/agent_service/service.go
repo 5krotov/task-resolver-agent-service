@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	api "github.com/5krotov/task-resolver-pkg/api/v1"
 	entity "github.com/5krotov/task-resolver-pkg/entity/v1"
@@ -140,7 +141,8 @@ func (as *AgentService) ConsumeStatus(ctx context.Context) error {
 
 	for {
 		if err := group.Consume(ctx, []string{topic}, handler); err != nil {
-			as.logger.Fatalf(err.Error())
+			as.logger.Errorf(err.Error())
+			time.Sleep(time.Second)
 		}
 	}
 }
