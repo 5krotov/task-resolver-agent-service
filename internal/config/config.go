@@ -22,15 +22,23 @@ type KafkaConfig struct {
 }
 
 type DataProviderConfig struct {
-	Addr string `yaml:"addr"`
+	Addr           string `yaml:"addr"`
+	UseTLS         bool   `yaml:"useTLS"`
+	CaCert         string `yaml:"caCert"`
+	GrpcServerName string `yaml:"grpcServerName"`
 }
 
 type AgentConfig struct {
-	HTTP HTTPConfig `yaml:"http"`
+	GRPC GRPCConfig `yaml:"grpc"`
 }
 
-type HTTPConfig struct {
-	Addr string `yaml:"addr"`
+type GRPCConfig struct {
+	Network string `yaml:"network"`
+	Addr    string `yaml:"addr"`
+	UseTLS  bool   `yaml:"useTLS"`
+	Cert    string `yaml:"cert"`
+	Key     string `yaml:"key"`
+	Ca      string `yaml:"ca"`
 }
 
 func NewConfig() *Config {

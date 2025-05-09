@@ -20,27 +20,28 @@ func NewApp() *App {
 }
 
 func (*App) Run(cfg config.Config) {
-	server := http.NewServer(cfg.Agent.HTTP)
 	config := sarama.NewConfig()
 	config.Version = sarama.V2_8_1_0
 
 	config.Producer.Return.Successes = true
 	config.Producer.RequiredAcks = sarama.WaitForAll
 	config.Producer.Retry.Max = 5
-
 	producer, err := sarama.NewSyncProducer([]string{cfg.Kafka.Addr}, config)
 	if err != nil {
-		log.Fatalf("failed to create Kafka sync producer: %w", err)
+		log.Fatalf("failed to create Kafka sync producer: %s", err.Error())
 	}
-	service := agent_service.NewAgentService(cfg, producer)
-	handler := agent_service.NewAgentHandler(service)
-	handler.Register(server.Mux)
+	service := agent_service.NewAgentService(cfg, producer, cfg.DataProvider)
+	handler := agent_service.NewAgentServiceServer(service)
+	server, err := http.NewServer(cfg.Agent.GRPC, handler)
+	if err != nil {
+		log.Fatalf("failed to create GRPC server: %s", err.Error())
+	}
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		server.Run()
+		server.Serve()
 	}()
 	defer func() {
 		server.Stop()

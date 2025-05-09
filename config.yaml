@@ -4,7 +4,14 @@ kafka:
   task_topic: tasks
   status_topic: status-updates
 data-provider:
-  addr: http://mock-api:8083
+  addr: "127.0.0.1:8083"
+  useTLS: false
+  caCert: ""
 agent:
-  http:
-    addr: localhost:8081
+  grpc:
+    network: "tcp"
+    addr: "0.0.0.0:8080"
+    useTLS: false
+    cert: ""
+    key: ""
+    ca: ""

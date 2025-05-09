@@ -1,44 +1,81 @@
 package agent_service
 
 import (
-	"encoding/json"
-	"net/http"
+	"context"
 
-	api "github.com/5krotov/task-resolver-pkg/api/v1"
-	"github.com/gorilla/mux"
+	pb "github.com/5krotov/task-resolver-pkg/grpc-api/v1"
+	"github.com/5krotov/task-resolver-pkg/rest-api/v1/api"
+	"github.com/5krotov/task-resolver-pkg/rest-api/v1/entity"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-type AgentHandler struct {
-	svc *AgentService
+type AgentServiceServer struct {
+	pb.UnimplementedAgentServiceServer
+	service *AgentService
 }
 
-func NewAgentHandler(svc *AgentService) *AgentHandler {
-	return &AgentHandler{svc: svc}
+func NewAgentServiceServer(service *AgentService) *AgentServiceServer {
+	return &AgentServiceServer{service: service}
 }
 
-func (s *AgentHandler) Register(mux *mux.Router) {
-	task := mux.PathPrefix("/api/v1/task").Subrouter()
-	task.HandleFunc("", s.CreateTask)
-}
-
-func (h *AgentHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Invalid method", http.StatusMethodNotAllowed)
-		return
+func (s *AgentServiceServer) CreateTask(ctx context.Context, request *pb.CreateTaskRequest) (*pb.CreateTaskResponse, error) {
+	apiCreateTaskRequest := api.CreateTaskRequest{
+		Name:       request.Name,
+		Difficulty: int(request.Difficulty),
 	}
-
-	var task api.CreateTaskRequest
-	err := json.NewDecoder(r.Body).Decode(&task)
+	apiCreateTaskResponse, err := s.service.CreateTask(ctx, apiCreateTaskRequest)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+		return nil, err
 	}
+	return &pb.CreateTaskResponse{
+		Task: mapEntityTaskTopPbTask(apiCreateTaskResponse),
+	}, nil
+}
 
-	taskResp, err := h.svc.CreateTask(task)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+func mapEntityTaskTopPbTask(task *entity.Task) *pb.Task {
+	statusHistory := []*pb.Status{}
+	for _, s := range task.StatusHistory {
+		statusHistory = append(statusHistory, &pb.Status{
+			Status:    pb.StatusValue(s.Status),
+			Timestamp: timestamppb.New(s.Timestamp),
+		})
 	}
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(taskResp)
+	return &pb.Task{
+		Id:            task.Id,
+		Name:          task.Name,
+		Difficulty:    pb.Difficulty(task.Difficulty),
+		StatusHistory: statusHistory,
+	}
+}
+
+func mapPbTaskToEntityTask(task *pb.Task) *entity.Task {
+	statusHistory := []entity.Status{}
+	for _, s := range task.GetStatusHistory() {
+		statusHistory = append(statusHistory, entity.Status{
+			Status:    int(s.GetStatus()),
+			Timestamp: s.GetTimestamp().AsTime(),
+		})
+	}
+	return &entity.Task{
+		Id:            task.GetId(),
+		Name:          task.GetName(),
+		Difficulty:    int(task.GetDifficulty()),
+		StatusHistory: statusHistory,
+	}
+}
+
+func mapEntityDoTaskRequestToPbDoTaskRequest(task *pb.Task) *entity.Task {
+	statusHistory := []entity.Status{}
+	for _, s := range task.GetStatusHistory() {
+		statusHistory = append(statusHistory, entity.Status{
+			Status:    int(s.GetStatus()),
+			Timestamp: s.GetTimestamp().AsTime(),
+		})
+	}
+	return &entity.Task{
+		Id:            task.GetId(),
+		Name:          task.GetName(),
+		Difficulty:    int(task.GetDifficulty()),
+		StatusHistory: statusHistory,
+	}
 }

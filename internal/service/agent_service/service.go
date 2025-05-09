@@ -2,32 +2,62 @@ package agent_service
 
 import (
 	"agent-service/internal/config"
-	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"time"
 
-	api "github.com/5krotov/task-resolver-pkg/api/v1"
-	entity "github.com/5krotov/task-resolver-pkg/entity/v1"
+	pb "github.com/5krotov/task-resolver-pkg/grpc-api/v1"
+	"github.com/5krotov/task-resolver-pkg/rest-api/v1/api"
+	"github.com/5krotov/task-resolver-pkg/rest-api/v1/entity"
 	"github.com/IBM/sarama"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type AgentService struct {
-	config config.Config
-	kafka  sarama.SyncProducer
-	logger *zap.SugaredLogger
+	config             config.Config
+	kafka              sarama.SyncProducer
+	logger             *zap.SugaredLogger
+	DataProviderConn   grpc.ClientConnInterface
+	DataProviderClient pb.DataProviderServiceClient
 }
 
-func NewAgentService(config config.Config, kafka sarama.SyncProducer) *AgentService {
+func NewAgentService(config config.Config, kafka sarama.SyncProducer, dataProvider config.DataProviderConfig) *AgentService {
 	logger, _ := zap.NewProduction()
 
+	var dataProviderConn grpc.ClientConnInterface
+	if dataProvider.UseTLS {
+		caCertPool := x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM([]byte(dataProvider.CaCert)) {
+			logger.Fatal("failed to add CA certificate for dataProvider service")
+		}
+
+		creds := credentials.NewClientTLSFromCert(caCertPool, dataProvider.GrpcServerName)
+		var err error
+		dataProviderConn, err = grpc.NewClient(dataProvider.Addr, grpc.WithTransportCredentials(creds))
+		if err != nil {
+			logger.Fatal(fmt.Sprintf("failed to connect to %v, error: %v", dataProvider.Addr, err))
+		}
+	} else {
+		var err error
+		dataProviderConn, err = grpc.NewClient(dataProvider.Addr)
+		if err != nil {
+			logger.Fatal(fmt.Sprintf("failed to connect to %v, error: %v", dataProvider.Addr, err))
+		}
+	}
+
+	dataProviderServiceClient := pb.NewDataProviderServiceClient(dataProviderConn)
+
 	svc := &AgentService{
-		config: config,
-		kafka:  kafka,
-		logger: logger.Sugar(),
+		config:             config,
+		kafka:              kafka,
+		logger:             logger.Sugar(),
+		DataProviderConn:   dataProviderConn,
+		DataProviderClient: dataProviderServiceClient,
 	}
 
 	go svc.ConsumeStatus(context.Background())
@@ -49,48 +79,27 @@ func (h *ConsumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 			continue
 		}
 		h.logger.Info("Received status update message", zap.Any("statusUpdate", status))
-		go h.svc.SaveNewStatus(status)
+		err := h.svc.SaveNewStatus(context.Background(), status)
+		if err != nil {
+			h.logger.Warn("Failed to save update status", zap.Error(err))
+		}
 		session.MarkMessage(msg, "")
 	}
 	return nil
 }
 
-func (as *AgentService) CreateTask(apiTask api.CreateTaskRequest) (*entity.Task, error) {
+func (as *AgentService) CreateTask(ctx context.Context, apiTask api.CreateTaskRequest) (*entity.Task, error) {
 	as.logger.Info("Creating task", zap.Any("apiTask", apiTask))
 
-	data, err := json.Marshal(apiTask)
+	resp, err := as.DataProviderClient.CreateTask(ctx, &pb.CreateTaskRequest{
+		Name:       apiTask.Name,
+		Difficulty: pb.Difficulty(apiTask.Difficulty),
+	})
 	if err != nil {
-		as.logger.Error("Failed to marshal task", zap.Error(err))
-		return nil, fmt.Errorf("failed to marshal task: %w", err)
+		as.logger.Error("Failed to create task on data provider", zap.Error(err))
+		return nil, fmt.Errorf("Failed to create task on data provider: %w", err)
 	}
-
-	url := fmt.Sprintf("%s/api/v1/task", as.config.DataProvider.Addr)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(data))
-	if err != nil {
-		as.logger.Error("Failed to create HTTP request", zap.Error(err))
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		as.logger.Error("Failed to send HTTP request", zap.Error(err))
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		as.logger.Warn("Unexpected status code from DataProvider", zap.Int("statusCode", resp.StatusCode))
-		return nil, fmt.Errorf("unexpected status code of dataprovider: %d", resp.StatusCode)
-	}
-
-	var task entity.Task
-	err = json.NewDecoder(resp.Body).Decode(&task)
-	if err != nil {
-		as.logger.Error("Failed to unmarshal response", zap.Error(err))
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
-	}
+	task := mapPbTaskToEntityTask(resp.GetTask())
 
 	kafkaTask := api.StartTaskRequest{
 		Id:         task.Id,
@@ -116,7 +125,7 @@ func (as *AgentService) CreateTask(apiTask api.CreateTaskRequest) (*entity.Task,
 	}
 
 	as.logger.Info("Task created successfully", zap.Any("task", task))
-	return &task, nil
+	return task, nil
 }
 
 func (as *AgentService) ConsumeStatus(ctx context.Context) error {
@@ -147,45 +156,26 @@ func (as *AgentService) ConsumeStatus(ctx context.Context) error {
 	}
 }
 
-func (as *AgentService) SaveNewStatus(status api.UpdateStatusRequest) {
+func (as *AgentService) SaveNewStatus(ctx context.Context, status api.UpdateStatusRequest) error {
 	as.logger.Info("Saving new status update", zap.Any("statusUpdate", status))
 
-	data, err := json.Marshal(status)
+	_, err := as.DataProviderClient.UpdateStatus(ctx, &pb.UpdateStatusRequest{
+		Id: status.Id,
+		Status: &pb.Status{
+			Status:    pb.StatusValue(status.Status.Status),
+			Timestamp: timestamppb.New(status.Status.Timestamp),
+		},
+	})
+
 	if err != nil {
-		as.logger.Error("Failed to marshal new status update data", zap.Error(err))
-		return
-	}
-
-	url := fmt.Sprintf("%s/api/v1/task/%d/status", as.config.DataProvider.Addr, status.Id)
-	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(data))
-	if err != nil {
-		as.logger.Error("Failed to create HTTP request for saving status update", zap.Error(err))
-		return
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		as.logger.Error("Failed to send HTTP request for saving status update", zap.Error(err))
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		as.logger.Warn("Unexpected response code while saving status update",
-			zap.Int("statusCode", resp.StatusCode), zap.Int64("taskId", status.Id))
-		return
-	}
-
-	var task entity.Task
-	err = json.NewDecoder(resp.Body).Decode(&task)
-	if err != nil {
-		as.logger.Error("Failed to unmarshal response while saving status update", zap.Error(err))
-		return
+		as.logger.Warn("Unable to save updated status",
+			zap.Int64("statusId", status.Id), zap.String("statusUpdateTimestamp",
+				status.Status.Timestamp.String()))
+		return err
 	}
 
 	as.logger.Info("Status update saved successfully for task",
-		zap.Int64("taskId", task.Id), zap.String("statusUpdateTimestamp",
+		zap.Int64("statusId", status.Id), zap.String("statusUpdateTimestamp",
 			status.Status.Timestamp.String()))
+	return nil
 }
