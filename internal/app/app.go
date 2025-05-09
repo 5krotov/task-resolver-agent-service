@@ -2,7 +2,7 @@ package app
 
 import (
 	"agent-service/internal/config"
-	"agent-service/internal/http"
+	"agent-service/internal/grpc"
 	"agent-service/internal/service/agent_service"
 	"log"
 	"os"
@@ -32,7 +32,7 @@ func (*App) Run(cfg config.Config) {
 	}
 	service := agent_service.NewAgentService(cfg, producer, cfg.DataProvider)
 	handler := agent_service.NewAgentServiceServer(service)
-	server, err := http.NewServer(cfg.Agent.GRPC, handler)
+	server, err := grpc.NewServer(cfg.Agent.GRPC, handler)
 	if err != nil {
 		log.Fatalf("failed to create GRPC server: %s", err.Error())
 	}

@@ -7,6 +7,7 @@ data-provider:
   addr: "127.0.0.1:8083"
   useTLS: false
   caCert: ""
+  grpcServerName: ""
 agent:
   grpc:
     network: "tcp"

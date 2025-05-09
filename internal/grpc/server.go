@@ -1,4 +1,4 @@
-package http
+package grpc
 
 import (
 	"agent-service/internal/config"
