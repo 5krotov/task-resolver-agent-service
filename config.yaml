@@ -11,7 +11,7 @@ data-provider:
 agent:
   grpc:
     network: "tcp"
-    addr: "0.0.0.0:8080"
+    addr: "0.0.0.0:8082"
     useTLS: false
     cert: ""
     key: ""
