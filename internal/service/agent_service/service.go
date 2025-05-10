@@ -15,6 +15,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -44,7 +45,7 @@ func NewAgentService(config config.Config, kafka sarama.SyncProducer, dataProvid
 		}
 	} else {
 		var err error
-		dataProviderConn, err = grpc.NewClient(dataProvider.Addr)
+		dataProviderConn, err = grpc.NewClient(dataProvider.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			logger.Fatal(fmt.Sprintf("failed to connect to %v, error: %v", dataProvider.Addr, err))
 		}
