@@ -3,9 +3,12 @@ package agent_service
 import (
 	"agent-service/internal/config"
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
 	"time"
 
 	pb "github.com/5krotov/task-resolver-pkg/grpc-api/v1"
@@ -30,21 +33,46 @@ type AgentService struct {
 func NewAgentService(config config.Config, kafka sarama.SyncProducer, dataProvider config.DataProviderConfig) *AgentService {
 	logger, _ := zap.NewProduction()
 
+	var err error
+
+	var clientCert tls.Certificate
+	if len(config.GRPCClient.ClientCert) != 0 && len(config.GRPCClient.ClientKey) != 0 {
+		clientCert, err = tls.LoadX509KeyPair(config.GRPCClient.ClientCert, config.GRPCClient.ClientKey)
+		if err != nil {
+			log.Fatalf("Failed to load client cert: %v", err)
+		}
+	}
+
+	var caCert []byte
+	if len(config.GRPCClient.CaCert) != 0 {
+		caCert, err = os.ReadFile(config.GRPCClient.CaCert)
+		if err != nil {
+			log.Fatalf("Failed to read CA cert: %v", err)
+		}
+	}
+
 	var dataProviderConn grpc.ClientConnInterface
 	if dataProvider.UseTLS {
+
 		caCertPool := x509.NewCertPool()
-		if !caCertPool.AppendCertsFromPEM([]byte(dataProvider.CaCert)) {
-			logger.Fatal("failed to add CA certificate for dataProvider service")
+		if !caCertPool.AppendCertsFromPEM(caCert) {
+			logger.Fatal("failed to add CA certificate for data provider service")
 		}
 
-		creds := credentials.NewClientTLSFromCert(caCertPool, dataProvider.GrpcServerName)
-		var err error
-		dataProviderConn, err = grpc.NewClient(dataProvider.Addr, grpc.WithTransportCredentials(creds))
+		tlsConfig := &tls.Config{
+			Certificates: []tls.Certificate{clientCert},
+			RootCAs:      caCertPool,
+			ServerName:   dataProvider.GrpcServerName,
+		}
+
+		dataProviderConn, err = grpc.NewClient(
+			dataProvider.Addr,
+			grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
+		)
 		if err != nil {
 			logger.Fatal(fmt.Sprintf("failed to connect to %v, error: %v", dataProvider.Addr, err))
 		}
 	} else {
-		var err error
 		dataProviderConn, err = grpc.NewClient(dataProvider.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			logger.Fatal(fmt.Sprintf("failed to connect to %v, error: %v", dataProvider.Addr, err))

@@ -12,6 +12,7 @@ type Config struct {
 	Kafka        KafkaConfig        `yaml:"kafka"`
 	DataProvider DataProviderConfig `yaml:"data-provider"`
 	Agent        AgentConfig        `yaml:"agent"`
+	GRPCClient   GRPCClientConfig   `yaml:"grpc-client"`
 }
 
 type KafkaConfig struct {
@@ -24,7 +25,6 @@ type KafkaConfig struct {
 type DataProviderConfig struct {
 	Addr           string `yaml:"addr"`
 	UseTLS         bool   `yaml:"useTLS"`
-	CaCert         string `yaml:"caCert"`
 	GrpcServerName string `yaml:"grpcServerName"`
 }
 
@@ -39,6 +39,12 @@ type GRPCConfig struct {
 	Cert    string `yaml:"cert"`
 	Key     string `yaml:"key"`
 	Ca      string `yaml:"ca"`
+}
+
+type GRPCClientConfig struct {
+	CaCert     string `yaml:"caCert"`
+	ClientCert string `yaml:"clientCert"`
+	ClientKey  string `yaml:"clientKey"`
 }
 
 func NewConfig() *Config {
